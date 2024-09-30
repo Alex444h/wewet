@@ -20,9 +20,8 @@ jobs:
       - name: Set ngrok configuration
         run: |
           New-Item -ItemType Directory -Path "$env:USERPROFILE\.ngrok2" -Force
-          @"
-          region: eu
-          "@" | Out-File -FilePath "$env:USERPROFILE\.ngrok2\ngrok.yml" -Encoding utf8
+          Set-Content -Path "$env:USERPROFILE\.ngrok2\ngrok.yml" -Value "region: eu"
+        shell: pwsh
           
       - name: Enable Terminal Services (RDP)
         run: |
