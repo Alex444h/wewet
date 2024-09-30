@@ -1,0 +1,12 @@
+$configContent = @"
+authtoken: $Env:NGROK_AUTH_TOKEN
+tunnels:
+  my_tcp_tunnel:
+    proto: tcp
+    addr: 3389
+    region: eu
+"@
+# Создаём папку для конфигурации, если не существует
+New-Item -ItemType Directory -Path .\ngrok -Force
+# Сохраняем конфигурационный файл
+Set-Content -Path .\ngrok\ngrok.yml -Value $configContent
