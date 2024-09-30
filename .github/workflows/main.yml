@@ -34,15 +34,36 @@ jobs:
 
       - name: Create RDP User
         run: |
-          $Password = ConvertTo-SecureString -AsPlainText "${{ secrets.RDP_PASSWORD }}" -Force
-          New-LocalUser -Name "runneradmin" -Password $Password -FullName "RDP User" -Description "User for RDP access" -PasswordNeverExpires
-          Add-LocalGroupMember -Group "Administrators" -Member "runneradmin"
+          $Password = ConvertTo-SecureString -String "${{ secrets.RDP_PASSWORD }}" -AsPlainText -Force
+          if (-Not (Get-LocalUser -Name "runneradmin" -ErrorAction SilentlyContinue)) {
+            New-LocalUser -Name "runneradmin" -Password $Password -FullName "RDP User" -Description "User for RDP access" -PasswordNeverExpires
+            Add-LocalGroupMember -Group "Administrators" -Member "runneradmin"
+          } else {
+            Write-Output "Пользователь 'runneradmin' уже существует."
+          }
+        shell: pwsh
 
       - name: Start ngrok tunnel
-        run: .\ngrok\ngrok.exe tcp 3389 --region eu
-        # Замените 'eu' на желаемый регион: us, eu, ap, au, etc.
+        run: .\ngrok\ngrok.exe tcp 3389 --region eu --log=stdout > ngrok.log &
+        shell: pwsh
+
+      - name: Wait for ngrok to initialize
+        run: Start-Sleep -Seconds 10
+        shell: pwsh
+
+      - name: Get ngrok URL
+        id: get_ngrok
+        run: |
+          $ngrokLog = Get-Content -Path .\ngrok.log -Tail 10
+          $tcpUrl = ($ngrokLog | Select-String -Pattern "tcp://").Line -replace "tcp://", ""
+          if ($tcpUrl) {
+            Write-Output "RDP доступен по адресу: $tcpUrl"
+            echo "::set-output name=rdp_url::$tcpUrl"
+          } else {
+            Write-Error "Не удалось получить URL туннеля ngrok."
+          }
+        shell: pwsh
 
       - name: Output ngrok URL
-        run: |
-          $ngrokInfo = .\ngrok\ngrok.exe tcp 3389 --region eu --log=stdout
-          Write-Output "RDP доступен по адресу: $($ngrokInfo | Select-String 'tcp://').Line"
+        run: echo "RDP доступен по адресу: ${{ steps.get_ngrok.outputs.rdp_url }}"
+        shell: pwsh
