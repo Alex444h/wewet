@@ -1,64 +1,28 @@
-name: Setup RDP with Ngrok
+name: Cl
 
-on:
-  push:
-    branches:
-      - main
-  workflow_dispatch:
+on: [push, workflow_dispatch]
 
 jobs:
-  setup-rdp:
+  build:
     runs-on: windows-latest
-
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v3
+    - name: Download
+      run: Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
 
-      - name: Download Ngrok
-        run: |
-          Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
+    - name: Extract
+      run: Expand-Archive ngrok.zip
 
-      - name: Extract Ngrok
-        run: Expand-Archive -Path ngrok.zip -DestinationPath .\ngrok
+    - name: Auth
+      run: .\ngrok\ngrok.exe authtoken $Env:NGROK_AUTH_TOKEN
+      env:
+        NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
 
-      - name: Authenticate Ngrok
-        run: .\ngrok\ngrok.exe authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
-        env:
-          NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+    - name: Enable TS
+      run: |
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1
+        Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "P@ssw0rd!" -Force)
 
-      - name: Enable Remote Desktop
-        run: |
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
-          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1
-
-      - name: Create RDP User
-        run: |
-          $password = ConvertTo-SecureString "${{ secrets.RDP_PASSWORD }}" -AsPlainText -Force
-          if (-Not (Get-LocalUser -Name "runneradmin" -ErrorAction SilentlyContinue)) {
-            New-LocalUser "runneradmin" -Password $password -FullName "RDP User" -Description "User for RDP access"
-          }
-          Add-LocalGroupMember -Group "Administrators" -Member "runneradmin"
-        # **Важно:** Добавьте `RDP_PASSWORD` в секреты репозитория для безопасности
-
-      - name: Start RDP Tunnel with Ngrok
-        run: |
-          start /B .\ngrok\ngrok.exe tcp 3389 --region eu --log=stdout > ngrok.log
-          # Ждем немного, чтобы туннель установился
-          Start-Sleep -Seconds 10
-          # Извлекаем адрес туннеля
-          $tunnel = (Get-Content ngrok.log -Wait -Tail 1) -match 'tcp://(\S+)' | Out-Null
-          $tcpAddress = $Matches[1]
-          echo "RDP доступен по адресу: $tcpAddress"
-        env:
-          NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
-
-      - name: Output RDP Address
-        run: |
-          $log = Get-Content ngrok.log -Raw
-          if ($log -match 'tcp://(\S+)') {
-            Write-Output "RDP доступен по адресу: $($matches[1])"
-            # Можно сохранить адрес в выходной параметр или отправить уведомление
-          } else {
-            Write-Error "Не удалось получить адрес туннеля Ngrok."
-          }
+    - name: Create Tunnel
+      run: .\ngrok\ngrok.exe tcp -region eu 3389
