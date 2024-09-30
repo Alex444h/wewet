@@ -1,4 +1,4 @@
-name: RDP Setup
+name: Setup RDP with Ngrok
 
 on:
   push:
@@ -11,17 +11,17 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v3
 
-      - name: Download ngrok
+      - name: Download Ngrok
         run: |
           Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
 
-      - name: Extract ngrok
+      - name: Extract Ngrok
         run: Expand-Archive -Path ngrok.zip -DestinationPath .\ngrok
 
-      - name: Authenticate ngrok
+      - name: Authenticate Ngrok
         run: .\ngrok\ngrok.exe authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
         env:
           NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
@@ -34,36 +34,31 @@ jobs:
 
       - name: Create RDP User
         run: |
-          $Password = ConvertTo-SecureString -String "${{ secrets.RDP_PASSWORD }}" -AsPlainText -Force
+          $password = ConvertTo-SecureString "${{ secrets.RDP_PASSWORD }}" -AsPlainText -Force
           if (-Not (Get-LocalUser -Name "runneradmin" -ErrorAction SilentlyContinue)) {
-            New-LocalUser -Name "runneradmin" -Password $Password -FullName "RDP User" -Description "User for RDP access" -PasswordNeverExpires
-            Add-LocalGroupMember -Group "Administrators" -Member "runneradmin"
-          } else {
-            Write-Output "Пользователь 'runneradmin' уже существует."
+            New-LocalUser "runneradmin" -Password $password -FullName "RDP User" -Description "User for RDP access"
           }
-        shell: pwsh
+          Add-LocalGroupMember -Group "Administrators" -Member "runneradmin"
+        # **Важно:** Добавьте `RDP_PASSWORD` в секреты репозитория для безопасности
 
-      - name: Start ngrok tunnel
-        run: .\ngrok\ngrok.exe tcp 3389 --region eu --log=stdout > ngrok.log &
-        shell: pwsh
-
-      - name: Wait for ngrok to initialize
-        run: Start-Sleep -Seconds 10
-        shell: pwsh
-
-      - name: Get ngrok URL
-        id: get_ngrok
+      - name: Start RDP Tunnel with Ngrok
         run: |
-          $ngrokLog = Get-Content -Path .\ngrok.log -Tail 10
-          $tcpUrl = ($ngrokLog | Select-String -Pattern "tcp://").Line -replace "tcp://", ""
-          if ($tcpUrl) {
-            Write-Output "RDP доступен по адресу: $tcpUrl"
-            echo "::set-output name=rdp_url::$tcpUrl"
-          } else {
-            Write-Error "Не удалось получить URL туннеля ngrok."
-          }
-        shell: pwsh
+          start /B .\ngrok\ngrok.exe tcp 3389 --region eu --log=stdout > ngrok.log
+          # Ждем немного, чтобы туннель установился
+          Start-Sleep -Seconds 10
+          # Извлекаем адрес туннеля
+          $tunnel = (Get-Content ngrok.log -Wait -Tail 1) -match 'tcp://(\S+)' | Out-Null
+          $tcpAddress = $Matches[1]
+          echo "RDP доступен по адресу: $tcpAddress"
+        env:
+          NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
 
-      - name: Output ngrok URL
-        run: echo "RDP доступен по адресу: ${{ steps.get_ngrok.outputs.rdp_url }}"
-        shell: pwsh
+      - name: Output RDP Address
+        run: |
+          $log = Get-Content ngrok.log -Raw
+          if ($log -match 'tcp://(\S+)') {
+            Write-Output "RDP доступен по адресу: $($matches[1])"
+            # Можно сохранить адрес в выходной параметр или отправить уведомление
+          } else {
+            Write-Error "Не удалось получить адрес туннеля Ngrok."
+          }
